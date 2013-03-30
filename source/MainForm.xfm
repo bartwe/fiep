@@ -1,0 +1,66 @@
+object FormMain: TFormMain
+  Left = 382
+  Top = 226
+  Width = 1305
+  Height = 675
+  VertScrollBar.Range = 25
+  Caption = 'MainForm'
+  Color = clBackground
+  Menu = MainMenu1
+  OnClose = FormClose
+  OnCreate = FormCreate
+  PixelsPerInch = 96
+  TextHeight = 13
+  TextWidth = 6
+  object TabControl1: TTabControl
+    Left = 0
+    Top = 0
+    Width = 1305
+    Height = 25
+    Align = alTop
+    TabOrder = 0
+    Tabs = <
+      item
+      end>
+  end
+  object EditorMemo: TMemo
+    Left = 0
+    Top = 25
+    Width = 1305
+    Height = 627
+    Align = alClient
+    BorderStyle = bsEtched
+    ScrollBars = ssAutoBoth
+    TabOrder = 1
+    UndoLevels = 2560
+    WantTabs = True
+    WordWrap = False
+    WrapBreak = wbAnywhere
+  end
+  object MainMenu1: TMainMenu
+    Left = 216
+    Top = 16
+    object File1: TMenuItem
+      Caption = 'File'
+      object ExitMenuItem: TMenuItem
+        Caption = 'E&xit'
+        OnClick = ExitMenuItemClick
+      end
+    end
+    object Edit1: TMenuItem
+      Caption = '&Edit'
+      object GotoNextErrorMenuItem: TMenuItem
+        Caption = '&Goto next error'
+        ShortCut = 4147
+      end
+    end
+    object Run1: TMenuItem
+      Caption = '&Run'
+      object RunMenuItem: TMenuItem
+        Caption = '&Run'
+        ShortCut = 4148
+        OnClick = RunMenuItemClick
+      end
+    end
+  end
+end
