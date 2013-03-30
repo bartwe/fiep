@@ -64,6 +64,8 @@ begin
 
   Engine := TEngine.Create();
   Engine.AddSourceFile(dummyFile);
+
+  Engine.Reload;
 end;
 
 end.

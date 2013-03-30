@@ -4,6 +4,7 @@ object FormMain: TFormMain
   Width = 1305
   Height = 675
   VertScrollBar.Range = 25
+  ActiveControl = TabControl1
   Caption = 'MainForm'
   Color = clBackground
   Menu = MainMenu1
@@ -27,7 +28,7 @@ object FormMain: TFormMain
     Left = 0
     Top = 25
     Width = 1305
-    Height = 627
+    Height = 625
     Align = alClient
     BorderStyle = bsEtched
     ScrollBars = ssAutoBoth
