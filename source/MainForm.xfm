@@ -4,6 +4,7 @@ object FormMain: TFormMain
   Width = 1305
   Height = 675
   VertScrollBar.Range = 25
+  HorzScrollBar.Range = 657
   ActiveControl = TabControl1
   Caption = 'MainForm'
   Color = clBackground
@@ -27,12 +28,26 @@ object FormMain: TFormMain
   object EditorMemo: TMemo
     Left = 0
     Top = 25
-    Width = 1305
+    Width = 648
     Height = 625
     Align = alClient
     BorderStyle = bsEtched
     ScrollBars = ssAutoBoth
     TabOrder = 1
+    UndoLevels = 2560
+    WantTabs = True
+    WordWrap = False
+    WrapBreak = wbAnywhere
+  end
+  object Memo1: TMemo
+    Left = 648
+    Top = 25
+    Width = 657
+    Height = 625
+    Align = alRight
+    BorderStyle = bsEtched
+    ScrollBars = ssAutoBoth
+    TabOrder = 2
     UndoLevels = 2560
     WantTabs = True
     WordWrap = False

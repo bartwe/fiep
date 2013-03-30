@@ -10,3 +10,6 @@ __history
 bin/*
 *.~*
 *.rsm
+
+*.cfg
+*.dof

@@ -19,6 +19,7 @@ type
     RunMenuItem: TMenuItem;
     Edit1: TMenuItem;
     GotoNextErrorMenuItem: TMenuItem;
+    Memo1: TMemo;
     procedure FormCreate(Sender: TObject);
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
     procedure ExitMenuItemClick(Sender: TObject);
@@ -66,6 +67,9 @@ begin
   Engine.AddSourceFile(dummyFile);
 
   Engine.Reload;
+
+  Memo1.Lines.Clear;
+  Memo1.Lines.AddStrings(Engine.Output);
 end;
 
 end.
