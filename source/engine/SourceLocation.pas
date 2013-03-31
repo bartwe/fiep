@@ -9,12 +9,12 @@ uses
 
 type
   TLocation = record
-    SourceName: String;
     Offset: Integer;
     Line: Integer;
     Column: Integer;
     Length: Integer;
   end;
+  PLocation = ^TLocation;
 
 function DescribeLocation(const Location: TLocation): String;
 
@@ -22,7 +22,7 @@ implementation
 
 function DescribeLocation(const Location: TLocation): String;
 begin
-  Result := '('+Location.SourceName+':'+IntToStr(Location.Line)+':'+IntToStr(Location.Column)+')['+IntToStr(Location.Offset)+':'+IntToStr(Location.Length)+']';
+  Result := '(:'+IntToStr(Location.Line)+':'+IntToStr(Location.Column)+')['+IntToStr(Location.Offset)+':'+IntToStr(Location.Length)+']';
 end;
 
 end.

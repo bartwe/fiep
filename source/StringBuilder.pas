@@ -19,6 +19,8 @@ type
     FPosition: Integer;
   end;
 
+  function CChr(B: Byte): String;
+
 implementation
 
 uses
@@ -26,6 +28,14 @@ uses
   Classes,
   SysUtils,
   StrUtils;
+
+var
+  GCChr : array[Byte] of String;
+
+function CChr(B: Byte): String;
+begin
+  Result := GCChr[B];
+end;
 
 constructor TStringBuilder.Create;
 begin
@@ -72,7 +82,14 @@ end;
 
 function TStringBuilder.ToString: String;
 begin
-  SetString(Result, PChar(@FBuffer[0]), FPosition);
+  if FPosition = 0 then begin
+    Result := '';
+  end
+  else if FPosition = 1 then begin
+    Result := GCChr[FBuffer[0]];
+  end
+  else
+    SetString(Result, PChar(@FBuffer[0]), FPosition);
 end;
 
 procedure TStringBuilder.Clear;
@@ -81,6 +98,18 @@ begin
   if Length(FBuffer) > 4096 then
     SetLength(FBuffer, 0);
 end;
+
+
+procedure BuildCChr;
+var
+  I: Byte;
+begin
+  for I := 0 to 255 do
+    GCChr[I] := Chr(I);
+end;
+
+initialization
+  BuildCChr;
 
 end.
 

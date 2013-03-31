@@ -4,7 +4,7 @@ interface
 
 uses
   SysUtils, Types, Classes, Variants, QTypes, QGraphics, QControls, QForms, 
-  QDialogs, QStdCtrls, QMenus, QComCtrls,
+  QDialogs, QStdCtrls, QMenus, QComCtrls, Windows,
 
   Engine;
 
@@ -58,19 +58,51 @@ begin
 end;
 
 procedure TFormMain.RunMenuItemClick(Sender: TObject);
+var
+  F,A,B: Int64;
+  I, L: Integer;
 begin
-  FreeAndNil(Engine);
-
   editorMemo.Lines.SaveToFile(dummyFile);
+
+  QueryPerformanceFrequency(F);
+  QueryPerformanceCounter(A);
+
+//  Memo1.Lines.Clear;
+
+  FreeAndNil(Engine);
 
   Engine := TEngine.Create();
   Engine.AddSourceFile(dummyFile);
 
-  Engine.Reload;
+  QueryPerformanceCounter(B);
 
-//  Memo1.Lines.Clear;
-  Memo1.Lines.Add('blip');
-//  Memo1.Lines.AddStrings(Engine.Output);
+  B := ((B - A) * 1000) div F;
+  Memo1.Lines.Add('pre '+IntToStr(B));
+
+  QueryPerformanceCounter(A);
+  while True do
+  Engine.Reload;
+  QueryPerformanceCounter(B);
+
+  B := ((B - A) * 1000) div F;
+  QueryPerformanceCounter(A);
+
+  Memo1.Lines.Add('blip '+IntToStr(B));
+
+  L := Engine.Output.Count-1;
+  if L > 1000 then
+    L := 1000;
+    L :=0 ;
+  Memo1.Lines.BeginUpdate;
+  for I := 0 to L do
+    Memo1.Lines.Append(Engine.Output[I]);
+  Memo1.Lines.EndUpdate;
+
+  FreeAndNil(Engine);
+
+  QueryPerformanceCounter(B);
+  B := ((B - A) * 1000) div F;
+  Memo1.Lines.Add('post '+IntToStr(B));
 end;
 
 end.

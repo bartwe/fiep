@@ -7,7 +7,8 @@ uses
   SourceFile in 'source\engine\SourceFile.pas',
   SourceLocation in 'source\engine\SourceLocation.pas',
   SourceToken in 'source\engine\SourceToken.pas',
-  StringBuilder in 'source\StringBuilder.pas';
+  StringBuilder in 'source\StringBuilder.pas',
+  SourceNode in 'source\engine\SourceNode.pas';
 
 {$R *.res}
 

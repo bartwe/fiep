@@ -60,7 +60,9 @@ begin
     SourceFile := TSourceFile.Create;
     SourceFile.ReadFromFile(FileName);
 
-    Output.AddStrings(SourceFile.FOutput);
+    Output.Clear;
+    Output.AddStrings(SourceFile.FErrors);
+    SourceFile.FOutput.WriteTo(Output);
     SourceFile.Free;
   end;
 end;

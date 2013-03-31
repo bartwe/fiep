@@ -15,6 +15,8 @@ type
 
   end;
 
+  PToken = ^TToken;
+
 function DescribeToken(const Token: TToken): String;
 
 implementation
