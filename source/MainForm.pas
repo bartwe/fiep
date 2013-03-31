@@ -68,8 +68,9 @@ begin
 
   Engine.Reload;
 
-  Memo1.Lines.Clear;
-  Memo1.Lines.AddStrings(Engine.Output);
+//  Memo1.Lines.Clear;
+  Memo1.Lines.Add('blip');
+//  Memo1.Lines.AddStrings(Engine.Output);
 end;
 
 end.
