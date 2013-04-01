@@ -80,7 +80,7 @@ begin
   Memo1.Lines.Add('pre '+IntToStr(B));
 
   QueryPerformanceCounter(A);
-  while True do
+//  while True do
   Engine.Reload;
   QueryPerformanceCounter(B);
 
@@ -92,7 +92,7 @@ begin
   L := Engine.Output.Count-1;
   if L > 1000 then
     L := 1000;
-    L :=0 ;
+//    L :=0 ;
   Memo1.Lines.BeginUpdate;
   for I := 0 to L do
     Memo1.Lines.Append(Engine.Output[I]);

@@ -15,6 +15,7 @@ type
   TCharType = (ctEof, ctWhitespace, ctLetter, ctNumber, ctSymbol);
   TStringMode = (smNone, smOpen, smEscape); //, smUnicode4, smUnicode3, smUnicode2, smUnicode1)
   TFloatMode = (fmNone, fmMinus, fmNakedDot, fmPrefix, fmDot, fmFraction, fmSignedExponent);
+  TBracketKind = (bkCurly, bkParens, bkBlock, bkAngle);
 
   TSourceFile = class
   public
@@ -49,15 +50,23 @@ type
 
     procedure Error(const Message: String; Position: TLocation);
 
+    procedure Group;
+    procedure GroupByBrackets(Node: TSourceNode; BracketKind: TBracketKind);
+    procedure GroupByBrackets_B(Node: TSourceNode; BracketKind: TBracketKind);
+
   end;
 
 implementation
 
 var
   RootNodeKind: TSourceNodeKind;
+  SymbolNodeKind: TSourceNodeKind;
   CharTypeMapping : array[Byte] of TCharType;
   Operators : TStringList;
   SNK: array[TTokenKind] of TSourceNodeKind;
+  OpenBracket: array[TBracketKind] of String;
+  CloseBracket: array[TBracketKind] of String;
+  BracketRequired: array[TBracketKind] of Boolean;
 
 constructor TSourceFile.Create;
 begin
@@ -120,6 +129,7 @@ begin
     Stream.Free;
   end;
   Phase1(0);
+  Group;
 end;
 
 procedure TSourceFile.Phase1(B: Byte);
@@ -599,7 +609,84 @@ begin
   end;
   SourceNode.Previous := FOutput.LastChild;
   FOutput.LastChild := SourceNode;
-  SourceNode.Parent := FOutput; 
+  SourceNode.Parent := FOutput;
+end;
+
+procedure TSourceFile.Group;
+begin
+  GroupByBrackets(FOutput, bkCurly);
+  GroupByBrackets(FOutput, bkParens);
+  GroupByBrackets(FOutput, bkBlock);
+  GroupByBrackets(FOutput, bkAngle);
+end;
+
+procedure TSourceFile.GroupByBrackets(Node: TSourceNode; BracketKind: TBracketKind);
+var
+  N: TSourceNode;
+begin
+  N := Node;
+  while Node <> nil do begin
+    if Node.FirstChild <> nil then
+      GroupByBrackets(Node.FirstChild, BracketKind);
+    Node := Node.Next;
+  end;
+  Node := N;
+  while Node <> nil do begin
+    if (Node.Kind = SymbolNodeKind) and (Node.Data = OpenBracket[BracketKind]) then
+      GroupByBrackets_B(Node, BracketKind);
+    Node := Node.Next;
+  end;
+end;
+
+procedure TSourceFile.GroupByBrackets_B(Node: TSourceNode; BracketKind: TBracketKind);
+var
+  Anchor: TSourceNode;
+  Terminator: TSourceNode;
+  T: TSourceNode;
+  EndLocation: TLocation;
+begin
+  if (Node.Kind <> SymbolNodeKind) or (Node.Data <> OpenBracket[BracketKind]) then
+    raise Exception.Create('fail');
+  Anchor := Node;
+  Node := Node.Next;
+  while Node <> nil do begin
+    if Node.Kind = SymbolNodeKind then begin
+      if Node.Data = OpenBracket[BracketKind] then begin
+        GroupByBrackets_B(Node, BracketKind);
+      end;
+      if Node.Data = CloseBracket[BracketKind] then begin
+        Break;
+      end;
+    end;
+    Node := Node.Next;
+  end;
+  if Node = nil then begin
+    if not BracketRequired[BracketKind] then begin
+      Anchor.Data := '#' + Anchor.Data; 
+      Exit;
+    end;
+    EndLocation := BeyondLocation(Anchor.Parent.LastChild.Position);
+    Error('Expected '+CloseBracket[BracketKind], EndLocation);
+    Terminator := Anchor.Parent.LastChild;
+  end
+  else begin
+    EndLocation := Node.Position;
+    Terminator := Node.Previous;
+    Node.Unhook;
+    Node.Free;
+  end;
+  Anchor.Position.Length := EndLocation.Offset - Anchor.Position.Offset;
+  if Anchor <> Terminator then begin
+    Node := Anchor.Next;
+    while True do
+    begin
+      T := Node.Next;
+      Node.AttachAsChildOf(Anchor);
+      if Node = Terminator then
+        Break;
+      Node := T;
+    end;
+  end;
 end;
 
 procedure BuildCharTypeMapping;
@@ -696,16 +783,34 @@ end;
 procedure BuildSNK;
 begin
   RootNodeKind := TSourceNodeKind.Create('root');
+  SymbolNodeKind := TSourceNodeKind.Create('symbol');
   SNK[tkIdentifier] := TSourceNodeKind.Create('identifier');
-  SNK[tkSymbol] := TSourceNodeKind.Create('symbol');
+  SNK[tkSymbol] := SymbolNodeKind;
   SNK[tkNumber] := TSourceNodeKind.Create('number');
   SNK[tkString] := TSourceNodeKind.Create('string');
+end;
+
+procedure BuildBrackets;
+begin
+  OpenBracket[bkCurly] := '{';
+  CloseBracket[bkCurly] := '}';
+  BracketRequired[bkCurly] := True;
+  OpenBracket[bkParens] := '(';
+  CloseBracket[bkParens] := ')';
+  BracketRequired[bkParens] := True;
+  OpenBracket[bkBlock] := '[';
+  CloseBracket[bkBlock] := ']';
+  BracketRequired[bkBlock] := True;
+  OpenBracket[bkAngle] := '<';
+  CloseBracket[bkAngle] := '>';
+  BracketRequired[bkAngle] := False;
 end;
 
 initialization
   BuildCharTypeMapping;
   BuildOperators;
   BuildSNK;
+  BuildBrackets;
 
 finalization
   FreeAndNil(Operators);
