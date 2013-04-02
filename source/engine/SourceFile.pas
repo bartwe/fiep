@@ -13,7 +13,7 @@ uses
 
 type
   TCharType = (ctEof, ctWhitespace, ctLetter, ctNumber, ctSymbol);
-  TStringMode = (smNone, smAt, smOpen, smOpenRaw, smEscape, smCharOpen, smCharEscape, smSlash, smLineComment, smBlockComment, smBlockCommentStar, smWildEscape); //, smUnicode4, smUnicode3, smUnicode2, smUnicode1)
+  TStringMode = (smNone, smAt, smOpen, smOpenRaw, smEscape, smRawEscape, smCharOpen, smCharEscape, smSlash, smLineComment, smBlockComment, smBlockCommentStar, smWildEscape); //, smUnicode4, smUnicode3, smUnicode2, smUnicode1)
   TFloatMode = (fmNone, fmMinus, fmNakedDot, fmPrefix, fmDot, fmFraction, fmSignedExponent);
   TBracketKind = (bkCurly, bkParens, bkBlock, bkAngle);
   TSeperatorKind = (skSemicolon, skComma);
@@ -202,7 +202,7 @@ begin
     end
     else
     if FPhase1_5Mode <> smNone then begin
-      if (FPhase1_5Mode =  smOpen) or (FPhase1_5Mode = smEscape) or (FPhase1_5Mode = smOpenRaw) then
+      if (FPhase1_5Mode =  smOpen) or (FPhase1_5Mode = smEscape) or (FPhase1_5Mode = smOpenRaw) or (FPhase1_5Mode = smRawEscape) then
         Error('Unterminated string constant', FPhase1_5Token.Position);
       if (FPhase1_5Mode =  smCharOpen) or (FPhase1_5Mode = smCharEscape) then
         Error('Unterminated character constant', FPhase1_5Token.Position);
@@ -289,13 +289,24 @@ begin
     smOpenRaw: begin
       Inc(FPhase1_5Token.Position.Length);
       if B = 34 then begin
-         FPhase1_5Mode := smNone;
-         FPhase1_5Token.Data := FPhase1_5Buffer.ToString;
-         Phase2B(@FPhase1_5Token);
+         FPhase1_5Mode := smRawEscape;
       end
       else begin
         FPhase1_5Buffer.AppendByte(B);
       end;
+    end;
+    smRawEscape: begin
+      Inc(FPhase1_5Token.Position.Length);
+      if B = 34 then begin
+        FPhase1_5Buffer.AppendByte(34);
+        FPhase1_5Mode := smOpenRaw;
+        Exit;
+      end;
+      FPhase1_5Mode := smNone;
+      FPhase1_5Token.Data := FPhase1_5Buffer.ToString;
+      Phase2B(@FPhase1_5Token);
+      Phase1_1(B, Position);
+      Exit;
     end;
     smEscape: begin
       Inc(FPhase1_5Token.Position.Length);
