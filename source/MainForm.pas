@@ -72,7 +72,8 @@ begin
   FreeAndNil(Engine);
 
   Engine := TEngine.Create();
-  Engine.AddSourceFile(dummyFile);
+  for I := 0 to editorMemo.Lines.Count-1 do
+    Engine.AddSourceFile(editorMemo.Lines[i]);
 
   QueryPerformanceCounter(B);
 
@@ -90,8 +91,8 @@ begin
   Memo1.Lines.Add('blip '+IntToStr(B));
 
   L := Engine.Output.Count-1;
-  if L > 1000 then
-    L := 1000;
+//  if L > 1000 then
+//    L := 1000;
 //    L :=0 ;
   Memo1.Lines.BeginUpdate;
   for I := 0 to L do
