@@ -6,7 +6,7 @@ uses
   SourceLocation;
 
 type
-  TTokenKind = (tkIdentifier, tkSymbol, tkNumber, tkString, tkEof);
+  TTokenKind = (tkIdentifier, tkSymbol, tkNumber, tkString, tkCharacter, tkComment, tkError, tkEof);
 
   TToken = record
     Position: TLocation;
@@ -33,6 +33,12 @@ begin
       Result := Result + 'number ';
     tkString:
       Result := Result + 'string ';
+    tkCharacter:
+      Result := Result + 'character ';
+    tkComment:
+      Result := Result + 'comment ';
+    tkError:
+      Result := Result + 'error ';
     tkEof:
       Result := Result + 'eof ';
   end;

@@ -13,7 +13,7 @@ uses
 
 type
   TCharType = (ctEof, ctWhitespace, ctLetter, ctNumber, ctSymbol);
-  TStringMode = (smNone, smOpen, smEscape); //, smUnicode4, smUnicode3, smUnicode2, smUnicode1)
+  TStringMode = (smNone, smOpen, smEscape, smCharOpen, smCharEscape, smSlash, smLineComment, smBlockComment, smBlockCommentStar, smWildEscape); //, smUnicode4, smUnicode3, smUnicode2, smUnicode1)
   TFloatMode = (fmNone, fmMinus, fmNakedDot, fmPrefix, fmDot, fmFraction, fmSignedExponent);
   TBracketKind = (bkCurly, bkParens, bkBlock, bkAngle);
   TSeperatorKind = (skSemicolon, skComma);
@@ -157,7 +157,7 @@ end;
 
 procedure TSourceFile.Phase1_5(B: Byte; Position: PLocation);
 begin
-  if (CharTypeMapping[B] <> ctEof) and (FPhase1_5Mode = smNone) and (B <> 34) then begin
+  if (CharTypeMapping[B] <> ctEof) and (FPhase1_5Mode = smNone) and (B <> 34) and (B <> 47) and (B <> 39) and (B <> 92) then begin
     Phase2(B, Position);
   end
   else begin
@@ -168,8 +168,18 @@ end;
 procedure TSourceFile.Phase1_5B(B: Byte; Position: PLocation);
 begin
   if CharTypeMapping[B] = ctEof then begin
+    if FPhase1_5Mode = smSlash then begin
+      Phase2(47, @FPhase1_5Token.Position);
+      FPhase1_5Mode := smNone;
+    end
+    else
     if FPhase1_5Mode <> smNone then begin
-      Error('Unterminated string constant', FPhase1_5Token.Position);
+      if (FPhase1_5Mode =  smOpen) or (FPhase1_5Mode = smEscape) then
+        Error('Unterminated string constant', FPhase1_5Token.Position);
+      if (FPhase1_5Mode =  smCharOpen) or (FPhase1_5Mode = smCharEscape) then
+        Error('Unterminated character constant', FPhase1_5Token.Position);
+      if (FPhase1_5Mode =  smBlockComment) or (FPhase1_5Mode = smBlockCommentStar) then
+        Error('Unterminated comment', FPhase1_5Token.Position);
       FPhase1_5Token.Data := FPhase1_5Buffer.ToString;
       Phase2B(@FPhase1_5Token);
       FPhase1_5Mode := smNone;
@@ -185,7 +195,29 @@ begin
          FPhase1_5Token.Position := Position^;
          FPhase1_5Buffer.Clear;
       end
-      else begin
+      else
+      if B = 39 then begin
+         FPhase1_5Mode := smCharOpen;
+         FPhase1_5Token.Kind := tkCharacter;
+         FPhase1_5Token.Position := Position^;
+         FPhase1_5Buffer.Clear;
+      end
+      else
+      if B = 47 then begin
+         FPhase1_5Mode := smSlash;
+         FPhase1_5Token.Kind := tkComment;
+         FPhase1_5Token.Position := Position^;
+         FPhase1_5Buffer.Clear;
+         FPhase1_5Buffer.AppendByte(B);
+      end
+      else
+      if B = 92 then begin
+         FPhase1_5Mode := smWildEscape;
+         FPhase1_5Token.Position := Position^;
+         FPhase1_5Buffer.Clear;
+      end
+      else
+      begin
         Phase2(B, Position);
       end;
     end;
@@ -218,12 +250,100 @@ begin
           FPhase1_5Buffer.AppendByte(B);
           FPhase1_5Mode := smOpen;
         end;
-        else begin
-          Error('Unrecognized escape sequence', Position^);
+        39: begin // '
           FPhase1_5Buffer.AppendByte(B);
           FPhase1_5Mode := smOpen;
         end;
+        else begin
+          Error('Unrecognized escape sequence', Position^);
+          FPhase1_5Mode := smOpen;
+        end;
       end;
+    end;
+    smCharOpen: begin
+      Inc(FPhase1_5Token.Position.Length);
+      if B = 39 then begin
+         FPhase1_5Mode := smNone;
+         FPhase1_5Token.Data := FPhase1_5Buffer.ToString;
+         Phase2B(@FPhase1_5Token);
+      end
+      else if B = 92 then begin
+         FPhase1_5Mode := smCharEscape;
+      end
+      else begin
+        FPhase1_5Buffer.AppendByte(B);
+      end;
+    end;
+    smCharEscape: begin
+      Inc(FPhase1_5Token.Position.Length);
+      case B of
+        92: begin // \
+          FPhase1_5Buffer.AppendByte(B);
+          FPhase1_5Mode := smCharOpen;
+        end;
+        110: begin // n
+          FPhase1_5Buffer.AppendByte(B);
+          FPhase1_5Mode := smCharOpen;
+        end;
+        34: begin // "
+          FPhase1_5Buffer.AppendByte(B);
+          FPhase1_5Mode := smCharOpen;
+        end;
+        39: begin // '
+          FPhase1_5Buffer.AppendByte(B);
+          FPhase1_5Mode := smCharOpen;
+        end;
+        else begin
+          Error('Unrecognized escape sequence', Position^);
+          FPhase1_5Mode := smCharOpen;
+        end;
+      end;
+    end;
+    smSlash: begin
+      if B = 47 then begin
+        FPhase1_5Buffer.AppendByte(B);
+        FPhase1_5Mode := smLineComment;
+      end
+      else if B = 42 then begin
+        FPhase1_5Buffer.AppendByte(B);
+        FPhase1_5Mode := smBlockComment;
+      end
+      else begin
+        Phase2(47, @FPhase1_5Token.Position);
+        Phase2(B, Position);
+      end;
+    end;
+    smLineComment: begin
+      if B = 10 then begin
+        FPhase1_5Token.Data := FPhase1_5Buffer.ToString;
+        FPhase1_5Mode := smNone;
+        Phase2B(@FPhase1_5Token);
+        Phase2(B, Position);
+      end
+      else
+      begin
+         FPhase1_5Buffer.AppendByte(B);
+      end;
+    end;
+    smBlockComment: begin
+      if B = 42 then
+        FPhase1_5Mode := smBlockCommentStar;
+      FPhase1_5Buffer.AppendByte(B);
+    end;
+    smBlockCommentStar: begin
+      FPhase1_5Buffer.AppendByte(B);
+      if B = 47 then begin
+        FPhase1_5Token.Data := FPhase1_5Buffer.ToString;
+        FPhase1_5Mode := smNone;
+        Phase2B(@FPhase1_5Token);
+      end
+    end;
+    smWildEscape: begin
+      if B <> 10 then begin
+        Phase2(92, @FPhase1_5Token.Position);
+        Phase2(B, Position);
+      end;
+      FPhase1_5Mode := smNone;
     end;
   end;
 end;
@@ -817,6 +937,10 @@ begin
   SNK[tkSymbol] := SymbolNodeKind;
   SNK[tkNumber] := TSourceNodeKind.Create('number');
   SNK[tkString] := TSourceNodeKind.Create('string');
+  SNK[tkCharacter] := TSourceNodeKind.Create('character');
+  SNK[tkComment] := TSourceNodeKind.Create('comment');
+  SNK[tkError] := TSourceNodeKind.Create('error');
+  SNK[tkEof] := TSourceNodeKind.Create('eof');
 end;
 
 procedure BuildBrackets;
