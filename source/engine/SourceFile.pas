@@ -13,7 +13,7 @@ uses
 
 type
   TCharType = (ctEof, ctWhitespace, ctLetter, ctNumber, ctSymbol);
-  TStringMode = (smNone, smOpen, smEscape, smCharOpen, smCharEscape, smSlash, smLineComment, smBlockComment, smBlockCommentStar, smWildEscape); //, smUnicode4, smUnicode3, smUnicode2, smUnicode1)
+  TStringMode = (smNone, smAt, smOpen, smOpenRaw, smEscape, smCharOpen, smCharEscape, smSlash, smLineComment, smBlockComment, smBlockCommentStar, smWildEscape); //, smUnicode4, smUnicode3, smUnicode2, smUnicode1)
   TFloatMode = (fmNone, fmMinus, fmNakedDot, fmPrefix, fmDot, fmFraction, fmSignedExponent);
   TBracketKind = (bkCurly, bkParens, bkBlock, bkAngle);
   TSeperatorKind = (skSemicolon, skComma);
@@ -29,6 +29,7 @@ type
 
   private
     FPhase1Position: TLocation;
+    FPhase1_2Mode: Boolean;
     FPhase1_5Mode: TStringMode;
     FPhase1_5Token: TToken;
     FPhase1_5Buffer: TStringBuilder;
@@ -40,6 +41,7 @@ type
     FPhase3Buffer: TStringBuilder;
 
     procedure Phase1(B: Byte); // locations and newline conversion
+    procedure Phase1_1(B: Byte; Position: PLocation);
     procedure Phase1_5(B: Byte; Position: PLocation); // Strings
     procedure Phase1_5B(B: Byte; Position: PLocation); // Strings
     procedure Phase2(B: Byte; Position: PLocation); // first tokenization pass
@@ -108,6 +110,8 @@ begin
   FPhase1Position.Offset := 0;
   FPhase1Position.Length := 1;
 
+  FPhase1_2Mode := False;
+
   FPhase1_5Mode := smNone;
   FPhase1_5Token.Kind := tkEof;
 
@@ -138,14 +142,14 @@ end;
 procedure TSourceFile.Phase1(B: Byte);
 begin
   if B = 0 then begin
-    Phase1_5(B, @FPhase1Position);
+    Phase1_1(B, @FPhase1Position);
     Exit;
   end;
   if B = 13 then begin
     Inc(FPhase1Position.Offset);
     Exit; // Dos newlines are a bother
   end;
-  Phase1_5(B, @FPhase1Position);
+  Phase1_1(B, @FPhase1Position);
   Inc(FPhase1Position.Offset);
   Inc(FPhase1Position.Column);
   if B = 10 then
@@ -155,9 +159,28 @@ begin
   end;
 end;
 
+procedure TSourceFile.Phase1_1(B: Byte; Position: PLocation);
+begin
+  if FPhase1_2Mode then begin
+    FPhase1_2Mode := False;
+    if B = 10 then
+      Exit;
+    Dec(Position.Offset);
+    Dec(Position.Column);
+    Phase1_5(92, Position);
+    Inc(Position.Offset);
+    Inc(Position.Column);
+  end;
+  if B = 92 then begin
+    FPhase1_2Mode := True;
+    Exit;
+  end;
+  Phase1_5(B, Position);
+end;
+
 procedure TSourceFile.Phase1_5(B: Byte; Position: PLocation);
 begin
-  if (CharTypeMapping[B] <> ctEof) and (FPhase1_5Mode = smNone) and (B <> 34) and (B <> 47) and (B <> 39) and (B <> 92) then begin
+  if (CharTypeMapping[B] <> ctEof) and (FPhase1_5Mode = smNone) and (B <> 34) and (B <> 47) and (B <> 39) and (B <> 92) and (B <> 64) and (B <> 35) then begin
     Phase2(B, Position);
   end
   else begin
@@ -173,8 +196,13 @@ begin
       FPhase1_5Mode := smNone;
     end
     else
+    if FPhase1_5Mode = smAt then begin
+      Phase2(64, @FPhase1_5Token.Position);
+      FPhase1_5Mode := smNone;
+    end
+    else
     if FPhase1_5Mode <> smNone then begin
-      if (FPhase1_5Mode =  smOpen) or (FPhase1_5Mode = smEscape) then
+      if (FPhase1_5Mode =  smOpen) or (FPhase1_5Mode = smEscape) or (FPhase1_5Mode = smOpenRaw) then
         Error('Unterminated string constant', FPhase1_5Token.Position);
       if (FPhase1_5Mode =  smCharOpen) or (FPhase1_5Mode = smCharEscape) then
         Error('Unterminated character constant', FPhase1_5Token.Position);
@@ -217,9 +245,32 @@ begin
          FPhase1_5Buffer.Clear;
       end
       else
+      if B = 35 then begin
+         FPhase1_5Mode := smLineComment;
+         FPhase1_5Token.Position := Position^;
+         FPhase1_5Buffer.Clear;
+         FPhase1_5Buffer.AppendByte(B);
+      end
+      else
+      if B = 64 then begin
+         FPhase1_5Mode := smAt;
+         FPhase1_5Token.Position := Position^;
+      end
+      else
       begin
         Phase2(B, Position);
       end;
+    end;
+    smAt: begin
+      if B <> 34 then begin
+        Phase2(64, @FPhase1_5Token.Position);
+        FPhase1_5Mode := smNone;
+        Phase1_5B(B, Position);
+        Exit;
+      end;
+      FPhase1_5Mode := smOpenRaw;
+      FPhase1_5Token.Kind := tkString;
+      FPhase1_5Buffer.Clear;
     end;
     smOpen: begin
       Inc(FPhase1_5Token.Position.Length);
@@ -235,28 +286,72 @@ begin
         FPhase1_5Buffer.AppendByte(B);
       end;
     end;
+    smOpenRaw: begin
+      Inc(FPhase1_5Token.Position.Length);
+      if B = 34 then begin
+         FPhase1_5Mode := smNone;
+         FPhase1_5Token.Data := FPhase1_5Buffer.ToString;
+         Phase2B(@FPhase1_5Token);
+      end
+      else begin
+        FPhase1_5Buffer.AppendByte(B);
+      end;
+    end;
     smEscape: begin
       Inc(FPhase1_5Token.Position.Length);
+      FPhase1_5Mode := smOpen;
       case B of
         92: begin // \
           FPhase1_5Buffer.AppendByte(B);
-          FPhase1_5Mode := smOpen;
+        end;
+        48: begin // 0
+          FPhase1_5Buffer.AppendByte(0);
+        end;
+        97: begin // a
+          FPhase1_5Buffer.AppendByte(7);
+        end;
+        98: begin // b
+          FPhase1_5Buffer.AppendByte(8);
+        end;
+        102: begin // f
+          FPhase1_5Buffer.AppendByte(12);
         end;
         110: begin // n
-          FPhase1_5Buffer.AppendByte(B);
-          FPhase1_5Mode := smOpen;
+          FPhase1_5Buffer.AppendByte(10);
+        end;
+        114: begin // r // don't use plz
+          FPhase1_5Buffer.AppendByte(13);
+        end;
+        116: begin // t
+          FPhase1_5Buffer.AppendByte(9);
+        end;
+        118: begin // v
+          FPhase1_5Buffer.AppendByte(11);
         end;
         34: begin // "
           FPhase1_5Buffer.AppendByte(B);
-          FPhase1_5Mode := smOpen;
         end;
         39: begin // '
           FPhase1_5Buffer.AppendByte(B);
-          FPhase1_5Mode := smOpen;
         end;
+
+        //placeholdery
+        120: begin // x
+          FPhase1_5Buffer.AppendByte(92);
+          FPhase1_5Buffer.AppendByte(B);
+        end;
+        117: begin // u
+          FPhase1_5Buffer.AppendByte(92);
+          FPhase1_5Buffer.AppendByte(B);
+        end;
+        86: begin // U
+          FPhase1_5Buffer.AppendByte(92);
+          FPhase1_5Buffer.AppendByte(B);
+        end;
+
+
         else begin
           Error('Unrecognized escape sequence', Position^);
-          FPhase1_5Mode := smOpen;
         end;
       end;
     end;
@@ -276,22 +371,34 @@ begin
     end;
     smCharEscape: begin
       Inc(FPhase1_5Token.Position.Length);
+      FPhase1_5Mode := smCharOpen;
       case B of
         92: begin // \
           FPhase1_5Buffer.AppendByte(B);
-          FPhase1_5Mode := smCharOpen;
+        end;
+        48: begin // 0
+          FPhase1_5Buffer.AppendByte(0);
+        end;
+        98: begin // b
+          FPhase1_5Buffer.AppendByte(8);
+        end;
+        102: begin // f
+          FPhase1_5Buffer.AppendByte(12);
         end;
         110: begin // n
-          FPhase1_5Buffer.AppendByte(B);
-          FPhase1_5Mode := smCharOpen;
+          FPhase1_5Buffer.AppendByte(10);
+        end;
+        114: begin // r // don't use plz
+          FPhase1_5Buffer.AppendByte(13);
+        end;
+        116: begin // t
+          FPhase1_5Buffer.AppendByte(9);
         end;
         34: begin // "
           FPhase1_5Buffer.AppendByte(B);
-          FPhase1_5Mode := smCharOpen;
         end;
         39: begin // '
           FPhase1_5Buffer.AppendByte(B);
-          FPhase1_5Mode := smCharOpen;
         end;
         else begin
           Error('Unrecognized escape sequence', Position^);
@@ -311,6 +418,7 @@ begin
       else begin
         Phase2(47, @FPhase1_5Token.Position);
         Phase2(B, Position);
+         FPhase1_5Mode := smNone;
       end;
     end;
     smLineComment: begin
@@ -337,6 +445,8 @@ begin
         FPhase1_5Mode := smNone;
         Phase2B(@FPhase1_5Token);
       end
+      else if B <> 42 then
+        FPhase1_5Mode := smBlockComment;
     end;
     smWildEscape: begin
       if B <> 10 then begin
@@ -866,6 +976,9 @@ begin
      CharTypeMapping[B] := ctLetter;
   for B := 123 to 126 do
      CharTypeMapping[B] := ctSymbol;
+
+  for B := 128 to 255 do
+   CharTypeMapping[B] := ctLetter; // le unicode
 end;
 
 procedure BuildOperators;
