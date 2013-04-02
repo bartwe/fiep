@@ -345,7 +345,6 @@ begin
         39: begin // '
           FPhase1_5Buffer.AppendByte(B);
         end;
-
         //placeholdery
         120: begin // x
           FPhase1_5Buffer.AppendByte(92);
@@ -359,8 +358,6 @@ begin
           FPhase1_5Buffer.AppendByte(92);
           FPhase1_5Buffer.AppendByte(B);
         end;
-
-
         else begin
           Error('Unrecognized escape sequence', Position^);
         end;
@@ -390,6 +387,9 @@ begin
         48: begin // 0
           FPhase1_5Buffer.AppendByte(0);
         end;
+        97: begin // a
+          FPhase1_5Buffer.AppendByte(7);
+        end;
         98: begin // b
           FPhase1_5Buffer.AppendByte(8);
         end;
@@ -405,10 +405,26 @@ begin
         116: begin // t
           FPhase1_5Buffer.AppendByte(9);
         end;
+        118: begin // v
+          FPhase1_5Buffer.AppendByte(11);
+        end;
         34: begin // "
           FPhase1_5Buffer.AppendByte(B);
         end;
         39: begin // '
+          FPhase1_5Buffer.AppendByte(B);
+        end;
+        //placeholdery
+        120: begin // x
+          FPhase1_5Buffer.AppendByte(92);
+          FPhase1_5Buffer.AppendByte(B);
+        end;
+        117: begin // u
+          FPhase1_5Buffer.AppendByte(92);
+          FPhase1_5Buffer.AppendByte(B);
+        end;
+        86: begin // U
+          FPhase1_5Buffer.AppendByte(92);
           FPhase1_5Buffer.AppendByte(B);
         end;
         else begin
