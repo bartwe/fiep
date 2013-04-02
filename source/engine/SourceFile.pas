@@ -16,6 +16,7 @@ type
   TStringMode = (smNone, smOpen, smEscape); //, smUnicode4, smUnicode3, smUnicode2, smUnicode1)
   TFloatMode = (fmNone, fmMinus, fmNakedDot, fmPrefix, fmDot, fmFraction, fmSignedExponent);
   TBracketKind = (bkCurly, bkParens, bkBlock, bkAngle);
+  TSeperatorKind = (skSemicolon, skComma);
 
   TSourceFile = class
   public
@@ -53,6 +54,7 @@ type
     procedure Group;
     procedure GroupByBrackets(Node: TSourceNode; BracketKind: TBracketKind);
     procedure GroupByBrackets_B(Node: TSourceNode; BracketKind: TBracketKind);
+    procedure GroupBySeperator(Node: TSourceNode; SeperatorKind: TSeperatorKind);
 
   end;
 
@@ -67,6 +69,7 @@ var
   OpenBracket: array[TBracketKind] of String;
   CloseBracket: array[TBracketKind] of String;
   BracketRequired: array[TBracketKind] of Boolean;
+  Seperator: array[TSeperatorKind] of String;
 
 constructor TSourceFile.Create;
 begin
@@ -138,11 +141,13 @@ begin
     Phase1_5(B, @FPhase1Position);
     Exit;
   end;
+  if B = 13 then begin
+    Inc(FPhase1Position.Offset);
+    Exit; // Dos newlines are a bother
+  end;
+  Phase1_5(B, @FPhase1Position);
   Inc(FPhase1Position.Offset);
   Inc(FPhase1Position.Column);
-  if B = 13 then
-    Exit; // Dos newlines are a bother
-  Phase1_5(B, @FPhase1Position);
   if B = 10 then
   begin
     Inc(FPhase1Position.Line);
@@ -618,6 +623,8 @@ begin
   GroupByBrackets(FOutput, bkParens);
   GroupByBrackets(FOutput, bkBlock);
   GroupByBrackets(FOutput, bkAngle);
+  GroupBySeperator(FOutput, skSemicolon);
+  GroupBySeperator(FOutput, skComma);
 end;
 
 procedure TSourceFile.GroupByBrackets(Node: TSourceNode; BracketKind: TBracketKind);
@@ -645,8 +652,6 @@ var
   T: TSourceNode;
   EndLocation: TLocation;
 begin
-  if (Node.Kind <> SymbolNodeKind) or (Node.Data <> OpenBracket[BracketKind]) then
-    raise Exception.Create('fail');
   Anchor := Node;
   Node := Node.Next;
   while Node <> nil do begin
@@ -686,6 +691,30 @@ begin
         Break;
       Node := T;
     end;
+  end;
+end;
+
+procedure TSourceFile.GroupBySeperator(Node: TSourceNode; SeperatorKind: TSeperatorKind);
+var
+  N, C, CN: TSourceNode;
+begin
+  N := Node.LastChild;
+  while N <> nil do begin
+    GroupBySeperator(N, SeperatorKind);
+    N:= N.Previous;
+  end;
+
+  N := Node.LastChild;
+  while N <> nil do begin
+    if (N.Kind = SymbolNodeKind) and (N.Data = Seperator[SeperatorKind]) then begin
+      C := N.Next;
+      while C <> nil do begin
+        CN := C.Next;
+        C.AttachAsChildOf(N);
+        C := CN;
+      end;
+    end;
+    N := N.Previous;
   end;
 end;
 
@@ -804,6 +833,9 @@ begin
   OpenBracket[bkAngle] := '<';
   CloseBracket[bkAngle] := '>';
   BracketRequired[bkAngle] := False;
+
+  Seperator[skSemicolon] := ';';
+  Seperator[skComma] := ',';
 end;
 
 initialization
