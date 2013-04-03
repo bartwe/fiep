@@ -54,6 +54,7 @@ var
 begin
     Output.Clear;
   // intended to work on a running system, so it only adds and replaces vmt entries and such, it deletes no methods or types and doesn't delete compiled code.
+//I := 0;
 //  while True do
   for I := 0 to FSourceFiles.Count-1 do
   begin

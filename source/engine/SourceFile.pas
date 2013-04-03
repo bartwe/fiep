@@ -58,15 +58,25 @@ type
     procedure GroupByBrackets_B(Node: TSourceNode; BracketKind: TBracketKind);
     procedure GroupBySeperator(Node: TSourceNode; SeperatorKind: TSeperatorKind);
 
+    procedure ParseOperators;
+
   end;
 
 implementation
+
+type
+  TFix = (fInfix, fPrefix, fPostfix);
+  TOperatorRecord = record
+    Key: Cardinal;
+    Data: String;
+    Fixness: TFix;
+  end;
 
 var
   RootNodeKind: TSourceNodeKind;
   SymbolNodeKind: TSourceNodeKind;
   CharTypeMapping : array[Byte] of TCharType;
-  Operators : TStringList;
+  Operators : array of TOperatorRecord;
   SNK: array[TTokenKind] of TSourceNodeKind;
   OpenBracket: array[TBracketKind] of String;
   CloseBracket: array[TBracketKind] of String;
@@ -108,7 +118,7 @@ begin
   FPhase1Position.Line := 1;
   FPhase1Position.Column := 1;
   FPhase1Position.Offset := 0;
-  FPhase1Position.Length := 1;
+  FPhase1Position.EndOffset := 1;
 
   FPhase1_2Mode := False;
 
@@ -137,6 +147,7 @@ begin
   end;
   Phase1(0);
   Group;
+  ParseOperators;
 end;
 
 procedure TSourceFile.Phase1(B: Byte);
@@ -147,10 +158,12 @@ begin
   end;
   if B = 13 then begin
     Inc(FPhase1Position.Offset);
+    Inc(FPhase1Position.EndOffset);
     Exit; // Dos newlines are a bother
   end;
   Phase1_1(B, @FPhase1Position);
   Inc(FPhase1Position.Offset);
+  Inc(FPhase1Position.EndOffset);
   Inc(FPhase1Position.Column);
   if B = 10 then
   begin
@@ -166,9 +179,11 @@ begin
     if B = 10 then
       Exit;
     Dec(Position.Offset);
+    Dec(Position.EndOffset);
     Dec(Position.Column);
     Phase1_5(92, Position);
     Inc(Position.Offset);
+    Inc(Position.EndOffset);
     Inc(Position.Column);
   end;
   if B = 92 then begin
@@ -273,7 +288,7 @@ begin
       FPhase1_5Buffer.Clear;
     end;
     smOpen: begin
-      Inc(FPhase1_5Token.Position.Length);
+      FPhase1_5Token.Position.EndOffset := Position.EndOffset;
       if B = 34 then begin
          FPhase1_5Mode := smNone;
          FPhase1_5Token.Data := FPhase1_5Buffer.ToString;
@@ -287,7 +302,7 @@ begin
       end;
     end;
     smOpenRaw: begin
-      Inc(FPhase1_5Token.Position.Length);
+      FPhase1_5Token.Position.EndOffset := Position.EndOffset;
       if B = 34 then begin
          FPhase1_5Mode := smRawEscape;
       end
@@ -296,7 +311,7 @@ begin
       end;
     end;
     smRawEscape: begin
-      Inc(FPhase1_5Token.Position.Length);
+      FPhase1_5Token.Position.EndOffset := Position.EndOffset;
       if B = 34 then begin
         FPhase1_5Buffer.AppendByte(34);
         FPhase1_5Mode := smOpenRaw;
@@ -309,7 +324,7 @@ begin
       Exit;
     end;
     smEscape: begin
-      Inc(FPhase1_5Token.Position.Length);
+      FPhase1_5Token.Position.EndOffset := Position.EndOffset;
       FPhase1_5Mode := smOpen;
       case B of
         92: begin // \
@@ -364,7 +379,7 @@ begin
       end;
     end;
     smCharOpen: begin
-      Inc(FPhase1_5Token.Position.Length);
+      FPhase1_5Token.Position.EndOffset := Position.EndOffset;
       if B = 39 then begin
          FPhase1_5Mode := smNone;
          FPhase1_5Token.Data := FPhase1_5Buffer.ToString;
@@ -378,7 +393,7 @@ begin
       end;
     end;
     smCharEscape: begin
-      Inc(FPhase1_5Token.Position.Length);
+      FPhase1_5Token.Position.EndOffset := Position.EndOffset;
       FPhase1_5Mode := smCharOpen;
       case B of
         92: begin // \
@@ -502,7 +517,7 @@ begin
     end;
     ctLetter: begin
       if (FPhase2PreviousCharType = ctLetter) or (FPhase2PreviousCharType = ctNumber) then begin
-        Inc(FPhase2Token.Position.Length);
+        FPhase2Token.Position.EndOffset := Position.EndOffset;
         FPhase2Buffer.AppendByte(B);
       end
       else begin
@@ -512,7 +527,7 @@ begin
     end;
     ctNumber: begin
       if (FPhase2PreviousCharType = ctLetter) or (FPhase2PreviousCharType = ctNumber) then begin
-        Inc(FPhase2Token.Position.Length);
+        FPhase2Token.Position.EndOffset := Position.EndOffset;
         Fphase2Buffer.AppendByte(B);
       end
       else begin
@@ -552,7 +567,7 @@ begin
     end;
     ctLetter: begin
       if (FPhase2PreviousCharType = ctLetter) or (FPhase2PreviousCharType = ctNumber) then begin
-        Inc(FPhase2Token.Position.Length);
+        FPhase2Token.Position.EndOffset := Position.EndOffset;
         FPhase2Buffer.AppendByte(B);
       end
       else begin
@@ -569,7 +584,7 @@ begin
     end;
     ctNumber: begin
       if (FPhase2PreviousCharType = ctLetter) or (FPhase2PreviousCharType = ctNumber) then begin
-        Inc(FPhase2Token.Position.Length);
+        FPhase2Token.Position.EndOffset := Position.EndOffset;
         Fphase2Buffer.AppendByte(B);
       end
       else begin
@@ -616,7 +631,7 @@ end;
 procedure TSourceFile.Phase3(Token: PToken);
 begin
   if FPhase3Mode <> fmNone then begin
-    if Token.Position.Offset <> FPhase3Token.Position.Offset + FPhase3Token.Position.Length then begin
+    if Token.Position.Offset <> FPhase3Token.Position.EndOffset then begin
       if (FPhase3Mode <> fmPrefix) and (FPhase3Mode <> fmMinus) and (FPhase3Mode <> fmNakedDot) then begin
         Phase3B(Token);
         Exit;
@@ -677,7 +692,7 @@ begin
     end;
     fmDot: begin
       if Token.Kind = tkNumber then begin
-        Inc(FPhase3Token.Position.Length, Token.Position.Length);
+        FPhase3Token.Position.EndOffset := Token.Position.EndOffset;
         FPhase3Buffer.AppendString(Token.Data);
         FPhase3Mode := fmFraction;
         Exit;
@@ -705,7 +720,7 @@ var
   S: String;
 begin
   if FPhase3Mode <> fmNone then begin
-    if Token.Position.Offset <> FPhase3Token.Position.Offset + FPhase3Token.Position.Length then begin
+    if Token.Position.Offset <> FPhase3Token.Position.EndOffset then begin
       if (FPhase3Mode <> fmPrefix) and (FPhase3Mode <> fmMinus) and (FPhase3Mode <> fmNakedDot) then
         FPhase3Token.Data := FPhase3Buffer.ToString;
       Phase4(@FPhase3Token);
@@ -733,7 +748,7 @@ begin
     end;
     fmNakedDot: begin
       if Token.Kind = tkNumber then begin
-        Inc(FPhase3Token.Position.Length, Token.Position.Length);
+        FPhase3Token.Position.EndOffset := Token.Position.EndOffset;
         FPhase3Buffer.Clear();
         FPhase3Buffer.AppendString(FPhase3Token.Data);
         FPhase3Buffer.AppendString(Token.Data);
@@ -748,14 +763,14 @@ begin
     end;
     fmMinus: begin
       if Token.Kind = tkNumber then begin
-        Inc(FPhase3Token.Position.Length, Token.Position.Length);
+        FPhase3Token.Position.EndOffset := Token.Position.EndOffset;
         FPhase3Token.Data := FPhase3Token.Data + Token.Data;
         FPhase3Token.Kind := tkNumber;
         FPhase3Mode := fmPrefix;
         Exit;
       end;
       if (Token.Kind = tkSymbol) and (Token.Data = '.') then begin
-        Inc(FPhase3Token.Position.Length, Token.Position.Length);
+        FPhase3Token.Position.EndOffset := Token.Position.EndOffset;
         FPhase3Buffer.Clear();
         FPhase3Buffer.AppendString(FPhase3Token.Data);
         FPhase3Buffer.AppendString(Token.Data);
@@ -769,7 +784,7 @@ begin
     end;
     fmPrefix: begin
       if (Token.Kind = tkSymbol) and (Token.Data = '.') then begin
-        Inc(FPhase3Token.Position.Length, Token.Position.Length);
+        FPhase3Token.Position.EndOffset := Token.Position.EndOffset;
         FPhase3Buffer.Clear();
         FPhase3Buffer.AppendString(FPhase3Token.Data);
         FPhase3Buffer.AppendString(Token.Data);
@@ -778,7 +793,7 @@ begin
       end;
       if AnsiEndsText('e', FPhase3Token.Data) and not (AnsiStartsText('0x', FPhase3Token.Data) or AnsiStartsText('-0x', FPhase3Token.Data)) then begin
         if (Token.Kind = tkSymbol) and ((Token.Data = '-') or (Token.Data = '+')) then begin
-          Inc(FPhase3Token.Position.Length, Token.Position.Length);
+          FPhase3Token.Position.EndOffset := Token.Position.EndOffset;
           FPhase3Buffer.Clear();
           FPhase3Buffer.AppendString(FPhase3Token.Data);
           FPhase3Buffer.AppendString(Token.Data);
@@ -793,13 +808,13 @@ begin
     end;
     fmDot: begin
       if Token.Kind = tkNumber then begin
-        Inc(FPhase3Token.Position.Length, Token.Position.Length);
+        FPhase3Token.Position.EndOffset := Token.Position.EndOffset;
         FPhase3Buffer.AppendString(Token.Data);
         FPhase3Mode := fmFraction;
         Exit;
       end;
       if Token.Kind = tkIdentifier then begin
-        Inc(FPhase3Token.Position.Length, Token.Position.Length);
+        FPhase3Token.Position.EndOffset := Token.Position.EndOffset;
         FPhase3Buffer.AppendString(Token.Data);
         FPhase3Token.Data := FPhase3Buffer.ToString;
         Phase4(@FPhase3Token);
@@ -816,13 +831,13 @@ begin
       S := FPhase3Buffer.ToString;
       if AnsiEndsText('e', S) and not (AnsiStartsText('0x', S) or AnsiStartsText('-0x', S)) then begin
         if (Token.Kind = tkSymbol) and ((Token.Data = '-') or (Token.Data = '+')) then begin
-          Inc(FPhase3Token.Position.Length, Token.Position.Length);
+          FPhase3Token.Position.EndOffset := Token.Position.EndOffset;
           FPhase3Buffer.AppendString(Token.Data);
           FPhase3Mode := fmSignedExponent;
           Exit;
         end;
         if Token.Kind = tkNumber then begin
-          Inc(FPhase3Token.Position.Length, Token.Position.Length);
+          FPhase3Token.Position.EndOffset := Token.Position.EndOffset;
           FPhase3Buffer.AppendString(Token.Data);
           Phase4(@FPhase3Token);
           FPhase3Mode := fmNone;
@@ -837,7 +852,7 @@ begin
     end;
     fmSignedExponent: begin
       if Token.Kind = tkNumber then begin
-        Inc(FPhase3Token.Position.Length, Token.Position.Length);
+        FPhase3Token.Position.EndOffset := Token.Position.EndOffset;
         FPhase3Buffer.AppendString(Token.Data);
         Phase4(@FPhase3Token);
         FPhase3Mode := fmNone;
@@ -937,7 +952,7 @@ begin
     Node.Unhook;
     Node.Free;
   end;
-  Anchor.Position.Length := EndLocation.Offset - Anchor.Position.Offset;
+  Anchor.Position.EndOffset := EndLocation.EndOffset;
   if Anchor <> Terminator then begin
     Node := Anchor.Next;
     while True do
@@ -975,6 +990,113 @@ begin
   end;
 end;
 
+procedure TSourceFile.ParseOperators;
+
+procedure ProcessOperator(Key: Cardinal; A: TSourceNode; B: TSourceNode; C: TSourceNode; D: TSourceNode);
+var
+  I: Integer;
+begin
+  if Key < $100 then
+    exit; // no need to process these
+  for I := 0 to Length(Operators)-1 do begin
+    if Operators[I].Key = Key then begin
+      A.Data := Operators[I].Data;
+      if Key >= $100 then begin
+        A.Position.EndOffset := B.Position.EndOffset;
+        B.Unhook;
+        B.Free;
+      end;
+      if Key >= $10000 then begin
+        A.Position.EndOffset := C.Position.EndOffset;
+        C.Unhook;
+        C.Free;
+      end;
+      if Key >= $1000000 then begin
+        A.Position.EndOffset := D.Position.EndOffset;
+        D.Unhook;
+        D.Free;
+      end;
+      Exit;
+    end;
+  end;
+  if Key >= $1000000 then
+    ProcessOperator(Key and $ffffff, A, B, C, D)
+  else if Key >= $10000 then
+    ProcessOperator(Key and $ffff, A, B, C, D)
+  else if Key >= $100 then
+    ProcessOperator(Key and $ff, A, B, C, D);
+end;
+
+var
+  Node: TSourceNode;
+  A, B, C, D: TSourceNode;
+  Key: Cardinal;
+begin
+  Node := FOutput;
+  while Node <> nil do
+  begin
+    A := Node;
+    B := nil;
+    C := nil;
+    D := nil;
+    if A <> nil then
+      B := A.Next;
+    if B <> nil then
+      C := B.Next;
+    if C <> nil then
+      D := C.Next;
+
+    if (A = nil) or (A.Kind <> SymbolNodeKind) or (A.FirstChild <> nil) then
+      A := nil;
+    if (A = nil) or (B = nil) or (B.Kind <> SymbolNodeKind) or (B.FirstChild <> nil) then
+      B := nil;
+    if (B = nil) or (C = nil) or (C.Kind <> SymbolNodeKind) or (C.FirstChild <> nil) then
+      C := nil;
+    if (C = nil) or (D = nil) or (D.Kind <> SymbolNodeKind) or (D.FirstChild <> nil) then
+      D := nil;
+
+    if (A <> nil) and (A.Data = '#<') then
+      A.Data := '<';
+
+    if B <> nil then begin
+
+      if (B <> nil) and (B.Data = '#<') then
+        B.Data := '<';
+      if (C <> nil) and (C.Data = '#<') then
+        C.Data := '<';
+      if (D <> nil) and (D.Data = '#<') then
+        D.Data := '<';
+
+      Key := 0;
+
+      if A <> nil then
+        Key := Key or Cardinal(A.Data[1]);
+      if B <> nil then
+        Key := Key or Cardinal(B.Data[1]) shl 8;
+      if C <> nil then
+        Key := Key or Cardinal(C.Data[1]) shl 16;
+      if D <> nil then
+        Key := Key or Cardinal(D.Data[1]) shl 24;
+
+      if Key <> 0 then
+        ProcessOperator(Key, A, B, C, D);
+    end;
+
+
+    if Node.FirstChild <> nil then
+      Node := Node.FirstChild
+    else begin
+      while Node <> nil do begin
+       if Node.Next <> nil then begin
+         Node := Node.Next;
+         break;
+       end;
+       Node := Node.Parent;
+      end;
+    end;
+  end;
+end;
+
 procedure BuildCharTypeMapping;
 var
   B: Byte;
@@ -1009,58 +1131,87 @@ begin
 end;
 
 procedure BuildOperators;
-begin
-  Operators := TStringList.Create;
-  Operators.Sorted := True;
-  Operators.Duplicates := dupError;
+  procedure Add(Operator: String; Fix: TFix);
+  var
+    Op: TOperatorRecord;
+    Key: Cardinal;
+  begin
+    Op.Data := Operator;
+    Op.Fixness := Fix;
 
-  Operators.Add('+');
-  Operators.Add('-');
-  Operators.Add('!');
-  Operators.Add('~');
-  Operators.Add('*');
-  Operators.Add('|');
-  Operators.Add('&');
-  Operators.Add('^');
-  Operators.Add('%');
-  Operators.Add('(');
-  Operators.Add(')');
-  Operators.Add('[');
-  Operators.Add(']');
-  Operators.Add('<');
-  Operators.Add('>');
-  Operators.Add('.');
-  Operators.Add(',');
-  Operators.Add('?');
-  Operators.Add(':');
-  Operators.Add('=');
-  Operators.Add('::');
-  Operators.Add('++');
-  Operators.Add('--');
-  Operators.Add('->');
-  Operators.Add('<<');
-  Operators.Add('>>');
-  Operators.Add('>>>');
-  Operators.Add('<=');
-  Operators.Add('>=');
-  Operators.Add('==');
-  Operators.Add('===');
-  Operators.Add('!=');
-  Operators.Add('!==');
-  Operators.Add('&&');
-  Operators.Add('||');
-  Operators.Add('??');
-  Operators.Add('+=');
-  Operators.Add('-=');
-  Operators.Add('*=');
-  Operators.Add('/=');
-  Operators.Add('%=');
-  Operators.Add('<<=');
-  Operators.Add('>>=');
-  Operators.Add('>>>=');
-  Operators.Add('&=');
-  Operators.Add('^=');
-  Operators.Add('|=');
+    Key := 0;
+
+    if Length(Operator) >= 1 then
+      Key := Key or Cardinal(Operator[1]);
+    if Length(Operator) >= 2 then
+      Key := Key or Cardinal(Operator[2]) shl 8;
+    if Length(Operator) >= 3  then
+      Key := Key or Cardinal(Operator[3]) shl 16;
+    if Length(Operator) >= 4  then
+      Key := Key or Cardinal(Operator[4]) shl 24;
+
+    Op.Key := Key;
+
+    SetLength(Operators, Length(Operators)+1);
+    Operators[Length(Operators)-1] := Op;
+  end;
+begin
+  SetLength(Operators, 0);
+
+  Add('=', fInfix);
+  Add('+', fInfix);
+  Add('-', fInfix);
+  Add('+', fPrefix);
+  Add('-', fPrefix);
+  Add('*', fInfix);
+  Add('*', fPrefix);
+  Add('/', fInfix);
+  Add('%', fInfix);
+  Add('~', fInfix);
+  Add('~', fPrefix);
+  Add('&', fInfix);
+  Add('&', fPrefix);
+  Add('|', fInfix);
+  Add('^', fInfix);
+  Add('!', fPrefix);
+  Add('?', fPrefix);
+
+
+
+  Add('::', fInfix);
+  Add('++', fPrefix);
+  Add('--', fPrefix);
+  Add('++', fPostfix);
+  Add('--', fPostfix);
+  Add('->', fInfix);
+  Add('<<', fInfix);
+  Add('>>', fInfix);
+  Add('&&', fInfix);
+  Add('||', fInfix);
+  Add('??', fInfix);
+  Add('==', fInfix);
+  Add('!=', fInfix);
+  Add('<=', fInfix);
+  Add('>=', fInfix);
+
+  Add('+=', fInfix);
+  Add('-=', fInfix);
+  Add('*=', fInfix);
+  Add('/=', fInfix);
+  Add('%=', fInfix);
+  Add('&=', fInfix);
+  Add('^=', fInfix);
+  Add('|=', fInfix);
+  Add('..', fInfix);
+
+  Add('...', fInfix);
+  Add('<<=', fInfix);
+  Add('>>=', fInfix);
+  Add('>>>', fInfix);
+  Add('===', fInfix);
+  Add(':=:', fInfix);
+  Add('!==', fInfix);
+  Add('>>>=', fInfix);
 end;
 
 procedure TSourceFile.Error(const Message: String; Position: TLocation);
@@ -1109,6 +1260,5 @@ initialization
   BuildBrackets;
 
 finalization
-  FreeAndNil(Operators);
 
 end.
