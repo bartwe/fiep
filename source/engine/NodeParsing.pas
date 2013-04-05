@@ -29,6 +29,7 @@ type
 
 var
   RootNodeKind: TSourceNodeKind;
+  ErrorNodeKind: TSourceNodeKind;
   SymbolNodeKind: TSourceNodeKind;
   CurlyBracketNodeKind: TSourceNodeKind;
   AngleBracketNodeKind: TSourceNodeKind;
@@ -121,7 +122,7 @@ begin
       Exit;
     end;
     EndLocation := BeyondLocation(Anchor.Parent.LastChild.Position);
-    InsertErrorAfter(Anchor.Parent.LastChild, 'Expected '+CloseBracket[BracketKind], @EndLocation);
+    InsertErrorNextTo(Anchor.Parent.LastChild, 'Expected '+CloseBracket[BracketKind], @EndLocation);
     Terminator := Anchor.Parent.LastChild;
   end
   else begin
@@ -283,6 +284,7 @@ end;
 procedure BuildNodeKinds;
 begin
   RootNodeKind := TSourceNodeKind.Create('root');
+  ErrorNodeKind := TSourceNodeKind.Create('error');
   SymbolNodeKind := TSourceNodeKind.Create('symbol');
   CurlyBracketNodeKind := TSourceNodeKind.Create('curly');
   AngleBracketNodeKind := TSourceNodeKind.Create('angle');

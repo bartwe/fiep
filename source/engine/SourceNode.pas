@@ -32,6 +32,7 @@ type
     procedure FreeChildren;
     procedure Unhook;
     procedure AttachAsChildOf(Node: TSourceNode);
+    procedure AttachNextTo(Node: TSourceNode);
 
     procedure WriteTo(Out: TStrings);
 
@@ -120,6 +121,32 @@ begin
   if Node.FirstChild = nil then
     Node.FirstChild := Self;
   Parent := Node;
+end;
+
+procedure TSourceNode.AttachNextTo(Node: TSourceNode);
+begin
+  if Parent <> nil then begin
+    if Parent.FirstChild = self then
+      Parent.FirstChild := self.Next;
+    if Parent.LastChild = self then
+      Parent.LastChild := self.Previous;
+    Parent := nil;
+  end;
+  if Next <> nil then
+    Next.Previous := Previous;
+  if Previous <> nil then
+    Previous.Next := Next;
+  Next := nil;
+  Previous := nil;
+
+  Previous := Node;
+  Next := Node.Next;
+  Parent := Node.Parent;
+  if Next <> nil then
+    Next.Previous := Self;
+  Previous.Next := Self;
+  if Parent.LastChild = Node then
+    Parent.LastChild := Self;
 end;
 
 end.

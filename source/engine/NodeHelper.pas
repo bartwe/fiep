@@ -6,12 +6,22 @@ uses
   SourceNode,
   SourceLocation;
 
-procedure InsertErrorAfter(Node: TSourceNode; const Message: String; Location: PLocation);
+procedure InsertErrorNextTo(Node: TSourceNode; const Message: String; Location: PLocation);
 
 implementation
 
-procedure InsertErrorAfter(Node: TSourceNode; const Message: String; Location: PLocation);
+uses
+  NodeParsing;
+
+procedure InsertErrorNextTo(Node: TSourceNode; const Message: String; Location: PLocation);
+var
+  Error: TSourceNode;
 begin
+  Error.Kind := ErrorNodeKind;
+  Error.Position := Location^;
+  Error.Data := Message;
+  Error.AttachNextTo(Node);
 end;
+
 
 end.
