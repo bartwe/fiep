@@ -54,8 +54,8 @@ type
     procedure Error(const Message: String; Position: TLocation);
 
     procedure Group;
-    procedure GroupByBrackets(Node: TSourceNode; BracketKind: TBracketKind);
-    procedure GroupByBrackets_B(Node: TSourceNode; BracketKind: TBracketKind);
+    procedure GroupByBrackets(Node: TSourceNode; BracketKind: TBracketKind; Kind: TSourceNodeKind);
+    procedure GroupByBrackets_B(Node: TSourceNode; BracketKind: TBracketKind; Kind: TSourceNodeKind);
     procedure GroupBySeperator(Node: TSourceNode; SeperatorKind: TSeperatorKind);
 
     procedure ParseOperators;
@@ -75,6 +75,10 @@ type
 var
   RootNodeKind: TSourceNodeKind;
   SymbolNodeKind: TSourceNodeKind;
+  CurlyBracketNodeKind: TSourceNodeKind;
+  AngleBracketNodeKind: TSourceNodeKind;
+  SquareBracketNodeKind: TSourceNodeKind;
+  ParensNodeKind: TSourceNodeKind;
   CharTypeMapping : array[Byte] of TCharType;
   Operators : array of TOperatorRecord;
   SNK: array[TTokenKind] of TSourceNodeKind;
@@ -891,33 +895,33 @@ end;
 
 procedure TSourceFile.Group;
 begin
-  GroupByBrackets(FOutput, bkCurly);
-  GroupByBrackets(FOutput, bkParens);
-  GroupByBrackets(FOutput, bkBlock);
-  GroupByBrackets(FOutput, bkAngle);
+  GroupByBrackets(FOutput, bkCurly, CurlyBracketNodeKind);
+  GroupByBrackets(FOutput, bkParens, ParensNodeKind);
+  GroupByBrackets(FOutput, bkBlock, SquareBracketNodeKind);
+  GroupByBrackets(FOutput, bkAngle, AngleBracketNodeKind);
   GroupBySeperator(FOutput, skSemicolon);
   GroupBySeperator(FOutput, skComma);
 end;
 
-procedure TSourceFile.GroupByBrackets(Node: TSourceNode; BracketKind: TBracketKind);
+procedure TSourceFile.GroupByBrackets(Node: TSourceNode; BracketKind: TBracketKind; Kind: TSourceNodeKind);
 var
   N: TSourceNode;
 begin
   N := Node;
   while Node <> nil do begin
     if Node.FirstChild <> nil then
-      GroupByBrackets(Node.FirstChild, BracketKind);
+      GroupByBrackets(Node.FirstChild, BracketKind, Kind);
     Node := Node.Next;
   end;
   Node := N;
   while Node <> nil do begin
     if (Node.Kind = SymbolNodeKind) and (Node.Data = OpenBracket[BracketKind]) then
-      GroupByBrackets_B(Node, BracketKind);
+      GroupByBrackets_B(Node, BracketKind, Kind);
     Node := Node.Next;
   end;
 end;
 
-procedure TSourceFile.GroupByBrackets_B(Node: TSourceNode; BracketKind: TBracketKind);
+procedure TSourceFile.GroupByBrackets_B(Node: TSourceNode; BracketKind: TBracketKind; Kind: TSourceNodeKind);
 var
   Anchor: TSourceNode;
   Terminator: TSourceNode;
@@ -929,7 +933,7 @@ begin
   while Node <> nil do begin
     if Node.Kind = SymbolNodeKind then begin
       if Node.Data = OpenBracket[BracketKind] then begin
-        GroupByBrackets_B(Node, BracketKind);
+        GroupByBrackets_B(Node, BracketKind, Kind);
       end;
       if Node.Data = CloseBracket[BracketKind] then begin
         Break;
@@ -952,6 +956,7 @@ begin
     Node.Unhook;
     Node.Free;
   end;
+  Anchor.Kind := Kind;
   Anchor.Position.EndOffset := EndLocation.EndOffset;
   if Anchor <> Terminator then begin
     Node := Anchor.Next;
@@ -1224,6 +1229,10 @@ procedure BuildSNK;
 begin
   RootNodeKind := TSourceNodeKind.Create('root');
   SymbolNodeKind := TSourceNodeKind.Create('symbol');
+  CurlyBracketNodeKind := TSourceNodeKind.Create('curly');
+  AngleBracketNodeKind := TSourceNodeKind.Create('angle');
+  SquareBracketNodeKind := TSourceNodeKind.Create('square');
+  ParensNodeKind := TSourceNodeKind.Create('parens');
   SNK[tkIdentifier] := TSourceNodeKind.Create('identifier');
   SNK[tkSymbol] := SymbolNodeKind;
   SNK[tkNumber] := TSourceNodeKind.Create('number');
