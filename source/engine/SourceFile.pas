@@ -9,14 +9,13 @@ uses
   Classes,
   SysUtils,
   StrUtils,
-  StringBuilder;
+  StringBuilder,
+  NodeParsing;
 
 type
   TCharType = (ctEof, ctWhitespace, ctLetter, ctNumber, ctSymbol);
   TStringMode = (smNone, smAt, smOpen, smOpenRaw, smEscape, smRawEscape, smCharOpen, smCharEscape, smSlash, smLineComment, smBlockComment, smBlockCommentStar, smWildEscape); //, smUnicode4, smUnicode3, smUnicode2, smUnicode1)
   TFloatMode = (fmNone, fmMinus, fmNakedDot, fmPrefix, fmDot, fmFraction, fmSignedExponent);
-  TBracketKind = (bkCurly, bkParens, bkBlock, bkAngle);
-  TSeperatorKind = (skSemicolon, skComma);
 
   TSourceFile = class
   public
@@ -39,6 +38,7 @@ type
     FPhase3Mode: TFloatMode;
     FPhase3Token: TToken;
     FPhase3Buffer: TStringBuilder;
+    FNodeParser: TNodeParser;
 
     procedure Phase1(B: Byte); // locations and newline conversion
     procedure Phase1_1(B: Byte; Position: PLocation);
@@ -53,39 +53,13 @@ type
 
     procedure Error(const Message: String; Position: TLocation);
 
-    procedure Group;
-    procedure GroupByBrackets(Node: TSourceNode; BracketKind: TBracketKind; Kind: TSourceNodeKind);
-    procedure GroupByBrackets_B(Node: TSourceNode; BracketKind: TBracketKind; Kind: TSourceNodeKind);
-    procedure GroupBySeperator(Node: TSourceNode; SeperatorKind: TSeperatorKind);
-
-    procedure ParseOperators;
-
   end;
 
 implementation
 
-type
-  TFix = (fInfix, fPrefix, fPostfix);
-  TOperatorRecord = record
-    Key: Cardinal;
-    Data: String;
-    Fixness: TFix;
-  end;
-
 var
-  RootNodeKind: TSourceNodeKind;
-  SymbolNodeKind: TSourceNodeKind;
-  CurlyBracketNodeKind: TSourceNodeKind;
-  AngleBracketNodeKind: TSourceNodeKind;
-  SquareBracketNodeKind: TSourceNodeKind;
-  ParensNodeKind: TSourceNodeKind;
   CharTypeMapping : array[Byte] of TCharType;
-  Operators : array of TOperatorRecord;
   SNK: array[TTokenKind] of TSourceNodeKind;
-  OpenBracket: array[TBracketKind] of String;
-  CloseBracket: array[TBracketKind] of String;
-  BracketRequired: array[TBracketKind] of Boolean;
-  Seperator: array[TSeperatorKind] of String;
 
 constructor TSourceFile.Create;
 begin
@@ -95,11 +69,14 @@ begin
   FPhase3Buffer := TStringBuilder.Create;
 
   FOutput := TSourceNode.Create;
-  FOutput.Kind := RootNodeKind;
+  FOutput.Kind := NodeParsing.RootNodeKind;
+
+  FNodeParser := TNodeParser.Create;
 end;
 
 destructor TSourceFile.Destroy;
 begin
+  FNodeParser.Free;
   FOutput.FreeChildren;
   FOutput.Free;
   FErrors.Free;
@@ -150,8 +127,7 @@ begin
     Stream.Free;
   end;
   Phase1(0);
-  Group;
-  ParseOperators;
+  FNodeParser.Process(FOutput);
 end;
 
 procedure TSourceFile.Phase1(B: Byte);
@@ -893,215 +869,6 @@ begin
   SourceNode.Parent := FOutput;
 end;
 
-procedure TSourceFile.Group;
-begin
-  GroupByBrackets(FOutput, bkCurly, CurlyBracketNodeKind);
-  GroupByBrackets(FOutput, bkParens, ParensNodeKind);
-  GroupByBrackets(FOutput, bkBlock, SquareBracketNodeKind);
-  GroupByBrackets(FOutput, bkAngle, AngleBracketNodeKind);
-  GroupBySeperator(FOutput, skSemicolon);
-  GroupBySeperator(FOutput, skComma);
-end;
-
-procedure TSourceFile.GroupByBrackets(Node: TSourceNode; BracketKind: TBracketKind; Kind: TSourceNodeKind);
-var
-  N: TSourceNode;
-begin
-  N := Node;
-  while Node <> nil do begin
-    if Node.FirstChild <> nil then
-      GroupByBrackets(Node.FirstChild, BracketKind, Kind);
-    Node := Node.Next;
-  end;
-  Node := N;
-  while Node <> nil do begin
-    if (Node.Kind = SymbolNodeKind) and (Node.Data = OpenBracket[BracketKind]) then
-      GroupByBrackets_B(Node, BracketKind, Kind);
-    Node := Node.Next;
-  end;
-end;
-
-procedure TSourceFile.GroupByBrackets_B(Node: TSourceNode; BracketKind: TBracketKind; Kind: TSourceNodeKind);
-var
-  Anchor: TSourceNode;
-  Terminator: TSourceNode;
-  T: TSourceNode;
-  EndLocation: TLocation;
-begin
-  Anchor := Node;
-  Node := Node.Next;
-  while Node <> nil do begin
-    if Node.Kind = SymbolNodeKind then begin
-      if Node.Data = OpenBracket[BracketKind] then begin
-        GroupByBrackets_B(Node, BracketKind, Kind);
-      end;
-      if Node.Data = CloseBracket[BracketKind] then begin
-        Break;
-      end;
-    end;
-    Node := Node.Next;
-  end;
-  if Node = nil then begin
-    if not BracketRequired[BracketKind] then begin
-      Anchor.Data := '#' + Anchor.Data; 
-      Exit;
-    end;
-    EndLocation := BeyondLocation(Anchor.Parent.LastChild.Position);
-    Error('Expected '+CloseBracket[BracketKind], EndLocation);
-    Terminator := Anchor.Parent.LastChild;
-  end
-  else begin
-    EndLocation := Node.Position;
-    Terminator := Node.Previous;
-    Node.Unhook;
-    Node.Free;
-  end;
-  Anchor.Kind := Kind;
-  Anchor.Position.EndOffset := EndLocation.EndOffset;
-  if Anchor <> Terminator then begin
-    Node := Anchor.Next;
-    while True do
-    begin
-      T := Node.Next;
-      Node.AttachAsChildOf(Anchor);
-      if Node = Terminator then
-        Break;
-      Node := T;
-    end;
-  end;
-end;
-
-procedure TSourceFile.GroupBySeperator(Node: TSourceNode; SeperatorKind: TSeperatorKind);
-var
-  N, C, CN: TSourceNode;
-begin
-  N := Node.LastChild;
-  while N <> nil do begin
-    GroupBySeperator(N, SeperatorKind);
-    N:= N.Previous;
-  end;
-
-  N := Node.LastChild;
-  while N <> nil do begin
-    if (N.Kind = SymbolNodeKind) and (N.Data = Seperator[SeperatorKind]) then begin
-      C := N.Next;
-      while C <> nil do begin
-        CN := C.Next;
-        C.AttachAsChildOf(N);
-        C := CN;
-      end;
-    end;
-    N := N.Previous;
-  end;
-end;
-
-procedure TSourceFile.ParseOperators;
-
-procedure ProcessOperator(Key: Cardinal; A: TSourceNode; B: TSourceNode; C: TSourceNode; D: TSourceNode);
-var
-  I: Integer;
-begin
-  if Key < $100 then
-    exit; // no need to process these
-  for I := 0 to Length(Operators)-1 do begin
-    if Operators[I].Key = Key then begin
-      A.Data := Operators[I].Data;
-      if Key >= $100 then begin
-        A.Position.EndOffset := B.Position.EndOffset;
-        B.Unhook;
-        B.Free;
-      end;
-      if Key >= $10000 then begin
-        A.Position.EndOffset := C.Position.EndOffset;
-        C.Unhook;
-        C.Free;
-      end;
-      if Key >= $1000000 then begin
-        A.Position.EndOffset := D.Position.EndOffset;
-        D.Unhook;
-        D.Free;
-      end;
-      Exit;
-    end;
-  end;
-  if Key >= $1000000 then
-    ProcessOperator(Key and $ffffff, A, B, C, D)
-  else if Key >= $10000 then
-    ProcessOperator(Key and $ffff, A, B, C, D)
-  else if Key >= $100 then
-    ProcessOperator(Key and $ff, A, B, C, D);
-end;
-
-var
-  Node: TSourceNode;
-  A, B, C, D: TSourceNode;
-  Key: Cardinal;
-begin
-  Node := FOutput;
-  while Node <> nil do
-  begin
-    A := Node;
-    B := nil;
-    C := nil;
-    D := nil;
-    if A <> nil then
-      B := A.Next;
-    if B <> nil then
-      C := B.Next;
-    if C <> nil then
-      D := C.Next;
-
-    if (A = nil) or (A.Kind <> SymbolNodeKind) or (A.FirstChild <> nil) then
-      A := nil;
-    if (A = nil) or (B = nil) or (B.Kind <> SymbolNodeKind) or (B.FirstChild <> nil) then
-      B := nil;
-    if (B = nil) or (C = nil) or (C.Kind <> SymbolNodeKind) or (C.FirstChild <> nil) then
-      C := nil;
-    if (C = nil) or (D = nil) or (D.Kind <> SymbolNodeKind) or (D.FirstChild <> nil) then
-      D := nil;
-
-    if (A <> nil) and (A.Data = '#<') then
-      A.Data := '<';
-
-    if B <> nil then begin
-
-      if (B <> nil) and (B.Data = '#<') then
-        B.Data := '<';
-      if (C <> nil) and (C.Data = '#<') then
-        C.Data := '<';
-      if (D <> nil) and (D.Data = '#<') then
-        D.Data := '<';
-
-      Key := 0;
-
-      if A <> nil then
-        Key := Key or Cardinal(A.Data[1]);
-      if B <> nil then
-        Key := Key or Cardinal(B.Data[1]) shl 8;
-      if C <> nil then
-        Key := Key or Cardinal(C.Data[1]) shl 16;
-      if D <> nil then
-        Key := Key or Cardinal(D.Data[1]) shl 24;
-
-      if Key <> 0 then
-        ProcessOperator(Key, A, B, C, D);
-    end;
-
-
-    if Node.FirstChild <> nil then
-      Node := Node.FirstChild
-    else begin
-      while Node <> nil do begin
-       if Node.Next <> nil then begin
-         Node := Node.Next;
-         break;
-       end;
-       Node := Node.Parent;
-      end;
-    end;
-  end;
-end;
-
 procedure BuildCharTypeMapping;
 var
   B: Byte;
@@ -1135,90 +902,6 @@ begin
    CharTypeMapping[B] := ctLetter; // le unicode
 end;
 
-procedure BuildOperators;
-  procedure Add(Operator: String; Fix: TFix);
-  var
-    Op: TOperatorRecord;
-    Key: Cardinal;
-  begin
-    Op.Data := Operator;
-    Op.Fixness := Fix;
-
-    Key := 0;
-
-    if Length(Operator) >= 1 then
-      Key := Key or Cardinal(Operator[1]);
-    if Length(Operator) >= 2 then
-      Key := Key or Cardinal(Operator[2]) shl 8;
-    if Length(Operator) >= 3  then
-      Key := Key or Cardinal(Operator[3]) shl 16;
-    if Length(Operator) >= 4  then
-      Key := Key or Cardinal(Operator[4]) shl 24;
-
-    Op.Key := Key;
-
-    SetLength(Operators, Length(Operators)+1);
-    Operators[Length(Operators)-1] := Op;
-  end;
-begin
-  SetLength(Operators, 0);
-
-  Add('=', fInfix);
-  Add('+', fInfix);
-  Add('-', fInfix);
-  Add('+', fPrefix);
-  Add('-', fPrefix);
-  Add('*', fInfix);
-  Add('*', fPrefix);
-  Add('/', fInfix);
-  Add('%', fInfix);
-  Add('~', fInfix);
-  Add('~', fPrefix);
-  Add('&', fInfix);
-  Add('&', fPrefix);
-  Add('|', fInfix);
-  Add('^', fInfix);
-  Add('!', fPrefix);
-  Add('?', fPrefix);
-
-
-
-  Add('::', fInfix);
-  Add('++', fPrefix);
-  Add('--', fPrefix);
-  Add('++', fPostfix);
-  Add('--', fPostfix);
-  Add('->', fInfix);
-  Add('<<', fInfix);
-  Add('>>', fInfix);
-  Add('&&', fInfix);
-  Add('||', fInfix);
-  Add('??', fInfix);
-  Add('==', fInfix);
-  Add('!=', fInfix);
-  Add('<=', fInfix);
-  Add('>=', fInfix);
-
-  Add('+=', fInfix);
-  Add('-=', fInfix);
-  Add('*=', fInfix);
-  Add('/=', fInfix);
-  Add('%=', fInfix);
-  Add('&=', fInfix);
-  Add('^=', fInfix);
-  Add('|=', fInfix);
-  Add('..', fInfix);
-
-  Add('...', fInfix);
-  Add('<<=', fInfix);
-  Add('>>=', fInfix);
-  Add('>>>', fInfix);
-  Add('===', fInfix);
-  Add(':=:', fInfix);
-  Add('!==', fInfix);
-  Add('>>>=', fInfix);
-end;
-
 procedure TSourceFile.Error(const Message: String; Position: TLocation);
 begin
   if FErrors.Count < 1000 then
@@ -1227,14 +910,9 @@ end;
 
 procedure BuildSNK;
 begin
-  RootNodeKind := TSourceNodeKind.Create('root');
-  SymbolNodeKind := TSourceNodeKind.Create('symbol');
-  CurlyBracketNodeKind := TSourceNodeKind.Create('curly');
-  AngleBracketNodeKind := TSourceNodeKind.Create('angle');
-  SquareBracketNodeKind := TSourceNodeKind.Create('square');
-  ParensNodeKind := TSourceNodeKind.Create('parens');
+  // move into NodeParsing
   SNK[tkIdentifier] := TSourceNodeKind.Create('identifier');
-  SNK[tkSymbol] := SymbolNodeKind;
+  SNK[tkSymbol] := NodeParsing.SymbolNodeKind;
   SNK[tkNumber] := TSourceNodeKind.Create('number');
   SNK[tkString] := TSourceNodeKind.Create('string');
   SNK[tkCharacter] := TSourceNodeKind.Create('character');
@@ -1243,30 +921,9 @@ begin
   SNK[tkEof] := TSourceNodeKind.Create('eof');
 end;
 
-procedure BuildBrackets;
-begin
-  OpenBracket[bkCurly] := '{';
-  CloseBracket[bkCurly] := '}';
-  BracketRequired[bkCurly] := True;
-  OpenBracket[bkParens] := '(';
-  CloseBracket[bkParens] := ')';
-  BracketRequired[bkParens] := True;
-  OpenBracket[bkBlock] := '[';
-  CloseBracket[bkBlock] := ']';
-  BracketRequired[bkBlock] := True;
-  OpenBracket[bkAngle] := '<';
-  CloseBracket[bkAngle] := '>';
-  BracketRequired[bkAngle] := False;
-
-  Seperator[skSemicolon] := ';';
-  Seperator[skComma] := ',';
-end;
-
 initialization
   BuildCharTypeMapping;
-  BuildOperators;
   BuildSNK;
-  BuildBrackets;
 
 finalization
 
